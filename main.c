@@ -173,32 +173,88 @@ int RunCommand(char *command_argv[]) {
 
 // Parses a CPU frequency string.
 //
-// A valid string consists of an integer, optional followed by whitespace, and
-// then an optional unit suffix, which may be "k", "kHz", "m", "mHz", "g", or
-// "gHz". Case is ignored. If no suffix is provided, kHz is assumed by default.
+// Valid strings look like: "42 mHz", "100,000", or "1.2G".
 //
-// If the string was valid, this function returns true, and the frequency is
-// converted to kHz and stored in *result. Otherwise, the function returns false
-// and *result is unchanged.
+// Formally, a frequency string consists of a decimal number and a suffix
+// denoting the scale of the result.
+//
+// The number and suffix may be separated by whitespace. A number may contain
+// a single decimal point. Commas may be used to group digits inside a number.
+//
+// The suffix is case-insensitive and denotes the scale of the result:
+// k(Hz), m(Hz) and g(Hz) are valid options. If no suffix is provided, kHz is
+// assumed by default. If the string could be parsed, then this function returns
+// true, and the frequency in kHz is stored in *result. Otherwise, the function
+// returns false and *result is unchanged.
 bool ParseFreq(const char *str, unsigned long *result) {
-    char *end = NULL;
-    unsigned long freq = 0;
-    freq = strtoul(str, &end, 10);
-    if (end == str) return false;
-    while (*end && isspace(*end)) ++end;
-    if (!*end || strcasecmp(end, "k") == 0 || strcasecmp(end, "kHz") == 0) {
-        *result = freq;
+    // Logically, the result is defined as val * multi / scale.
+    unsigned long val = 0;
+    unsigned long scale = 0;
+    unsigned long multi = 1;
+    const char *p = str;
+    while (isspace(*p)) ++p;
+    if (*p < '0' && *p > '9') {
+        // Must start with a digit.
+        return false;
+    }
+    for ( ; *p; ++p) {
+        if (*p == ',') {
+            // Grouping comma ignored.
+        } else if (*p == '.') {
+            if (scale != 0) {
+                // Can't contain more than one decimal point.
+                return false;
+            }
+            scale = 1;
+        } else if (*p >= '0' && *p <= '9') {
+            int add = *p - '0';
+            if (val > (ULONG_MAX - add)/10) {
+                return false;
+            }
+            val = 10*val + add;
+            if (scale > ULONG_MAX/10) {
+                return false;
+            }
+            scale *= 10;
+        } else {
+            break;
+        }
+    }
+    if (scale == 0) {
+        scale = 1;
+    }
+    while (*p && isspace(*p)) ++p;
+    if (*p) {
+        char ch = tolower(*p++);
+        if (ch == 'k') {
+            multi = 1;
+        } else if (ch == 'm') {
+            multi = 1000;
+        } else if (ch == 'g') {
+            multi = 1000000;
+        } else {
+            return false;
+        }
+        if (*p && (tolower(*p++) != 'h' || tolower(*p++) != 'z')) {
+            return false;
+        }
+    }
+    while (*p && isspace(*p)) ++p;
+    if (*p) {
+        return false;
+    }
+    if (multi > scale) {
+        multi /= scale;
+        if (val > ULONG_MAX/multi) {
+            return false;
+        }
+        *result = val * multi;
+        return true;
+    } else {
+        scale /= multi;
+        *result = val / scale;
         return true;
     }
-    if (strcasecmp(end, "M") == 0 || strcasecmp(end, "MHz") == 0) {
-        *result = freq * 1000;
-        return true;
-    }
-    if (strcasecmp(end, "G") == 0 || strcasecmp(end, "GHz") == 0) {
-        *result = freq * 1000000;
-        return true;
-    }
-    return false;
 }
 
 int main(int argc, char *argv[]) {
