@@ -1,7 +1,7 @@
 CFLAGS=-std=c99 -Wall -O2
 LDLIBS=-lcpupower
 BIN=cpu-throttle
-OBJ=main.o
+OBJ=main.o number-to-string.o parse-frequency.o
 
 all: cpu-throttle
 
