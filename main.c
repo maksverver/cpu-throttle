@@ -20,7 +20,7 @@ static struct cpufreq_policy **old_policies;
 
 bool Initialize() {
     if (geteuid() != 0) {
-       fprintf(stderr, "root privileges missing (check that the binary is owned by root and has setuid bit set))\n");
+       fprintf(stderr, "root privileges missing (check that the binary is owned by root and has setuid bit set)\n");
        return false;
     }
 
