@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <cpufreq.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -17,6 +18,30 @@ static int ncpus;
 
 // Policy for each CPU, at startup. Memory is never freed.
 static struct cpufreq_policy **old_policies;
+
+// Size of the character buffer passed to NumberToString().
+#define NUMBER_BUF_SIZE (sizeof(unsigned long) * CHAR_BIT / 2)
+
+// Converts an unsigned long value to its decimal string representation, with
+// groups of three digits separated by commas. For example, 12345 is rendered
+// as "12,345".
+char *NumberToString(unsigned long value, char (*buf)[NUMBER_BUF_SIZE]) {
+    char *p = *buf + NUMBER_BUF_SIZE;
+    *--p = '\0';
+    if (value == 0) {
+        *--p = '0';
+    } else {
+        for (int n = 0; value > 0; ++n) {
+            if (n == 3) {
+                *--p = ',';
+                n = 0;
+            }
+            *--p = '0' + value%10;
+            value /= 10;
+        }
+    }
+    return p;
+}
 
 bool Initialize() {
     if (geteuid() != 0) {
@@ -43,6 +68,15 @@ bool Initialize() {
     return true;
 }
 
+void PrintPolicy(FILE *fp, int cpu, const struct cpufreq_policy *p) {
+    char min_buf[NUMBER_BUF_SIZE];
+    char max_buf[NUMBER_BUF_SIZE];
+    fprintf(fp, "CPU %d: governor=%s min=%s max=%s\n",
+            cpu, p->governor,
+            NumberToString(p->min, &min_buf),
+            NumberToString(p->max, &max_buf));
+}
+
 void ResetFrequencies() {
     fprintf(stderr, "Resetting CPU frequency scaling policies...\n");
     for (int i = 0; i < ncpus; ++i) {
@@ -51,8 +85,7 @@ void ResetFrequencies() {
         if (!p) {
             fprintf(stderr, "CPU %d: missing policy\n", i);
         } else {
-            fprintf(stderr, "CPU %d: governor=%s min=%lu max=%lu\n",
-                i, p->governor, p->min, p->max);
+            PrintPolicy(stderr, i, p);
             if (cpufreq_set_policy(i, p) != 0) {
                 fprintf(stderr, "CPU %d: failed to reset policy\n", i);
             }
@@ -61,18 +94,22 @@ void ResetFrequencies() {
 }
 
 bool SetMaxFrequencies(unsigned long target_freq) {
-    fprintf(stderr, "Setting maximum frequency to %lu kHz...\n", target_freq);
+    char target_freq_buf[NUMBER_BUF_SIZE];
+    char *target_freq_str = NumberToString(target_freq, &target_freq_buf);
+    fprintf(stderr, "Setting maximum frequency to %s kHz...\n", target_freq_str);
     int succeeded = 0;
     for (int i = 0; i < ncpus; ++i) {
         unsigned long min_freq = 0, max_freq = 0;
         if (cpufreq_get_hardware_limits(i, &min_freq, &max_freq) != 0) {
             fprintf(stderr, "CPU %d: could not determine hardware frequency limits\n", i);
         } else if (target_freq < min_freq) {
-            fprintf(stderr, "CPU %d: target frequency (%lu kHz) is below hardware minimum (%lu kHz)\n",
-                    i, target_freq, min_freq);
+            char min_freq_buf[NUMBER_BUF_SIZE];
+            fprintf(stderr, "CPU %d: target frequency (%s kHz) is below hardware minimum (%s kHz)\n",
+                    i, target_freq_str, NumberToString(min_freq, &min_freq_buf));
         } else if (target_freq > max_freq) {
-            fprintf(stderr, "CPU %d: target frequency (%lu kHz) is above hardware maximum (%lu kHz)\n",
-                    i, target_freq, max_freq);
+            char max_freq_buf[NUMBER_BUF_SIZE];
+            fprintf(stderr, "CPU %d: target frequency (%s kHz) is above hardware maximum (%s kHz)\n",
+                    i, target_freq_str, NumberToString(max_freq, &max_freq_buf));
         } else if (cpufreq_modify_policy_max(i, target_freq) != 0) {
             fprintf(stderr, "Failed to set maximum frequency of CPU %d\n", i);
         } else {
@@ -80,8 +117,7 @@ bool SetMaxFrequencies(unsigned long target_freq) {
         }
         // Read back and print the actual frequency, which may differ from what was requested.
         struct cpufreq_policy *p = cpufreq_get_policy(i);
-        fprintf(stderr, "CPU %d: governor=%s min=%lu max=%lu\n",
-                i, p->governor, p->min, p->max);
+        PrintPolicy(stderr, i, p);
         cpufreq_put_policy(p);
     }
     return succeeded == ncpus;
