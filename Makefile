@@ -23,9 +23,9 @@ test_parse-frequency: parse-frequency_test; ./parse-frequency_test
 test: $(TESTS)
 
 clean:
-	rm -f ./*.o
+	rm -f ./*.o $(TEST_BIN)
 
 distclean: clean
-	rm -f $(BIN) $(TEST_BIN)
+	rm -f $(BIN)
 
 .PHONY: all clean distclean test $(TESTS)
