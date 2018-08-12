@@ -3,6 +3,10 @@
 #include <ctype.h>
 #include <limits.h>
 
+static bool IsAsciiDigit(char ch) {
+    return ch >= '0' && ch <= '9';
+}
+
 bool ParseFrequency(const char *str, unsigned long *result) {
     // Logically, the result is defined as val * multi / scale.
     unsigned long val = 0;
@@ -10,20 +14,12 @@ bool ParseFrequency(const char *str, unsigned long *result) {
     unsigned long multi = 1;
     const char *p = str;
     while (isspace(*p)) ++p;
-    if (*p < '0' && *p > '9') {
+    if (!IsAsciiDigit(*p)) {
         // Must start with a digit.
         return false;
     }
     for ( ; *p; ++p) {
-        if (*p == ',') {
-            // Grouping comma ignored.
-        } else if (*p == '.') {
-            if (scale != 0) {
-                // Can't contain more than one decimal point.
-                return false;
-            }
-            scale = 1;
-        } else if (*p >= '0' && *p <= '9') {
+        if (IsAsciiDigit(*p)) {
             int add = *p - '0';
             if (val > (ULONG_MAX - add)/10) {
                 return false;
@@ -33,6 +29,23 @@ bool ParseFrequency(const char *str, unsigned long *result) {
                 return false;
             }
             scale *= 10;
+        } else if (*p == '.' || *p == ',') {
+            // Referencing p[-1] and p[1] is safe; we know we started the loop
+            // at a digit (which must precede p) and str is zero-terminated,
+            // while *p != '\0' here (so the zero terminator must succeed p).
+            if (!IsAsciiDigit(p[-1]) || !IsAsciiDigit(p[1])) {
+                // Periods and commas can only occur between digits.
+                return false;
+            }
+            if (*p == '.') {
+                if (scale != 0) {
+                    // Can't contain more than one decimal point.
+                    return false;
+                }
+                scale = 1;
+            } else {
+                // Grouping comma is ignored.
+            }
         } else {
             break;
         }
